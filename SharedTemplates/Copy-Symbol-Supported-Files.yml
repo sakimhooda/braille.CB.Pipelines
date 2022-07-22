@@ -1,0 +1,31 @@
+parameters:
+- name: SourceDirectory
+  type: string
+- name: DestinationDirectory
+  type: string
+- name: CopyFilter
+  type: string
+  default: ''
+
+steps:
+# This script looks for all .pdb files, and copies all files which share a filename (with any extension)
+# This copies all .dll .exe files which have a matching .pdb files, which excludes external binaries 
+# which may not have a matching .pdb, but were not produced by this build.
+- powershell: |-
+    $filesToCopy = Get-ChildItem ${{ parameters.SourceDirectory }} | Where-Object {$_.Extension -eq '.pdb'} | ForEach-Object {@(($_.BaseName + '.exe'), ($_.BaseName + '.dll'), ($_.BaseName + '.pdb'))}
+    # Create a pipe separated list of files that need to be copied.
+    $pipeSeparatedList = [System.String]::Join("|", $filesToCopy);
+    Write-Host "Files to copy: $($filesToCopy.Count)"
+
+    # Create and set a new variable that can be used by subsequent tasks.
+    Write-Host "##vso[task.setvariable variable=FilesToCopy]$pipeSeparatedList"
+  displayName: Get Files to Copy for Scanning
+
+- task: CopyFiles@2
+  displayName: Copy Binaries to Symbols Scan Directory
+  inputs:
+    SourceFolder: ${{ parameters.SourceDirectory }}
+    Contents: |-
+      *($(FilesToCopy))
+      ${{ parameters.CopyFilter }}
+    TargetFolder: ${{ parameters.DestinationDirectory }}

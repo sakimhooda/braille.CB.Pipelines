@@ -1,0 +1,60 @@
+trigger: none
+
+pool: CoreBuild-Pool-Lite
+
+parameters:
+- name: PackageVersions
+  type: string
+- name: fake
+  type: boolean
+  displayName: Fake Mode (only print data about requested pipelines)
+  default: false
+# Control for pipelines
+- name: b57271
+  type: boolean
+  displayName: (BXL Test) RS_ES_CoreBuild (AllLayers, 0-3)
+  default: true
+- name: b55279
+  type: boolean
+  displayName: (Production) BuildXL Rolling Build (os.2020)
+  default: false
+- name: b65544
+  type: boolean
+  displayName: (BXL) rs_es_corebuild ModernBuild End-to-End Testing
+  default: true
+- name: b69016
+  type: boolean
+  displayName: (BXL Test) co_refresh (AllLayers, 0-3, NoPatcher)
+  default: true
+
+# Set string values for the pipelines which were enabled.
+variables:
+  ${{ if parameters.fake }}:
+    vFake: -fake
+  ${{ if parameters.b57271 }}:
+    v57271: 57271
+  ${{ if parameters.b55279 }}:
+    v55279: 55279
+  ${{ if parameters.b65544 }}:
+    v65544: 65544
+  ${{ if parameters.b69016 }}:
+    v69016: 69016
+
+jobs:
+- job: QueueBuilds
+  displayName: Queue Selected BuildXL Pipelines
+  steps:
+  - task: PowerShell@2
+    displayName: Queue Pipelines
+    inputs:
+      pwsh: true
+      filePath: Invoke-Build-Rest.ps1
+      arguments: >
+        ${{ variables.vFake }}
+        -packageVersions "${{ parameters.PackageVersions }}"
+        ${{ variables.v57271 }}
+        ${{ variables.v55279 }}
+        ${{ variables.v65544 }}
+        ${{ variables.v69016 }}
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)

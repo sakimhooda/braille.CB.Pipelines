@@ -1,0 +1,86 @@
+parameters:
+- name: AreaPath
+  type: string
+- name: BugsAsErrors
+  type: boolean
+  default: false
+- name: BugTags
+  type: string
+- name: BinariesPath
+  type: string
+- name: IterationPath
+  type: string
+# Enable control of CFGCheck and XFGCheck, since they should not be run on managed code
+- name: CFGCheck
+  type: boolean
+  default: true
+# Separate control for XFGCheck. Will remain off unless CFGCheck is also enabled
+- name: XFGCheck
+  type: boolean
+  default: true
+# Use the exclusion file at Shared\PoliCheckUserExclusion.xml
+- name: UsePoliCheckExclusions
+  type: boolean
+  default: true
+# Use the exclusion file at Shared\CredScanUserExclusion.json
+- name: UseCredScanExclusions
+  type: boolean
+  default: true
+
+steps:
+  - task: ms.vss-governance-buildtask.governance-build-task-component-detection.ComponentGovernanceComponentDetection@0
+    displayName: Component Detection
+
+  - task: securedevelopmentteam.vss-secure-development-tools.build-task-prefast.SDLNativeRules@2
+    displayName: Run the PREfast SDL Native Rules for MSBuild
+
+  - task: CopyFiles@1
+    displayName: Copy PREfast xml files to SDLNativeRulesDir
+    inputs:
+      SourceFolder: $(Agent.BuildDirectory)\i
+      Contents: |-
+        **\*.nativecodeanalysis.xml
+      TargetFolder: $(Agent.BuildDirectory)\_sdt\logs\SDLNativeRules
+
+  - task: securedevelopmentteam.vss-secure-development-tools.build-task-policheck.PoliCheck@1
+    displayName: 'Run PoliCheck'
+    inputs:
+      targetType: F
+      ${{ if parameters.UsePoliCheckExclusions }}:
+        optionsUEPATH: Shared\PoliCheckUserExclusion.xml
+
+  - task: securedevelopmentteam.vss-secure-development-tools.build-task-credscan.CredScan@2
+    displayName: Run CredScan
+    inputs:
+      toolMajorVersion: V2
+      toolVersionV2: LatestPreRelease
+      ${{ if parameters.UseCredScanExclusions }}:
+        suppressionsFile: Shared\CredScanUserExclusion.json
+      debugMode: false
+
+  - task: PkgESSecComp@10
+    displayName: Security and Compliance tasks
+    inputs:
+      areaPath: ${{ parameters.AreaPath }}
+      iterationPath: ${{ parameters.IterationPath }}
+      bugTags: ${{ parameters.BugTags }}
+      secCompConfigFromTask: |
+        # Overrides default build binaries directory when "Scan all" option is specified
+        binariesTargetOverrideAll: ${{ parameters.BinariesPath }}
+
+        # Set the tools to false if they should not run in the build
+        tools:
+            - toolName: CheckCFlags
+              enable: true
+            - toolName: CFGCheck
+              enable: ${{ parameters.CFGCheck }}
+            - toolName: XFGCheck
+              enable: ${{ and(parameters.CFGCheck, parameters.XFGCheck) }}
+            - toolName: Policheck
+              enable: false
+            - toolName: CredScan
+              enable: false
+      errOnBugs: ${{ parameters.BugsAsErrors }}
+      fileNewBugs: ${{ not(parameters.BugsAsErrors) }}
+      failOnStdErr: false
+      taskLogVerbosity: Normal

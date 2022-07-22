@@ -1,0 +1,30 @@
+parameters:
+- name: JobName
+  type: string
+- name: DisplayName
+  type: string
+- name: BuildSteps
+  type: stepList
+- name: BuildPlatform
+  type: object
+  default:
+  - x86
+  - x64
+- name: BuildConfiguration
+  type: object
+  default:
+  - release
+  - debug
+
+jobs:
+- job: ${{ parameters.JobName }}
+  displayName: ${{ parameters.DisplayName }}
+  strategy:
+    matrix:
+      ${{ each bPlatform in parameters.BuildPlatform }}:
+        ${{ each bConfiguration in parameters.BuildConfiguration }}:
+          ${{ bPlatform }}_${{ bConfiguration }}:
+            BuildPlatform: ${{ bPlatform }}
+            BuildConfiguration: ${{ bConfiguration }}
+  steps:
+  - ${{ parameters.buildSteps }}

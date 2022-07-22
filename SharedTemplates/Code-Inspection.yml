@@ -1,0 +1,56 @@
+parameters:
+- name: SolutionAbsolutePath
+  type: string
+- name: Language
+  type: string
+- name: NugetConfigPath
+  type: string
+- name: SourceDirectory
+  type: string
+  default: $(Build.SourcesDirectory)
+- name: CodeQLBuildExtraArgs
+  type: string
+  default: ''
+
+jobs:
+- job: CodeQL
+  displayName: CodeQL
+  steps:
+  - task: PowerShell@2
+    displayName: List Vars
+    inputs:
+      targetType: inline
+      script: gci env:* | sort -Property Name
+
+  - task: NuGetCommand@2
+    displayName: NuGet restore
+    inputs:
+      solution: ${{ parameters.SolutionAbsolutePath }}
+      selectOrConfig: config
+      nugetConfigPath: ${{ parameters.NugetConfigPath }}
+
+  - task: Semmle@0
+    displayName: Run CodeQL (${{ parameters.Language }})
+    inputs:
+      sourceCodeDirectory: ${{ parameters.SourceDirectory }}
+      language: ${{ parameters.Language }}
+      cleanupBuildCommands: '"%ProgramFiles(x86)%\Microsoft Visual Studio\2019\Enterprise\MSBuild\Current\Bin\msbuild.exe" ${{ parameters.SolutionAbsolutePath }} "/t:Clean" ${{ parameters.CodeQLBuildExtraArgs }}'
+      buildCommands: '"%ProgramFiles(x86)%\Microsoft Visual Studio\2019\Enterprise\MSBuild\Current\Bin\msbuild.exe" ${{ parameters.SolutionAbsolutePath }} ${{ parameters.CodeQLBuildExtraArgs }}'
+
+  - task: PublishSecurityAnalysisLogs@2
+    displayName: Publish Security Analysis Logs
+
+  - task: PostAnalysis@1
+    displayName: Post Analysis
+    continueOnError: True
+    inputs:
+      Semmle: true
+      
+- job: CodeInspector
+  displayName: CodeInspector
+  steps:
+  - task: CodeInspector@2
+    displayName: Run Code Inspector
+    inputs:
+      ProductId: 79fa5ec3-73c7-4e39-b151-8dcc82136ce1
+...

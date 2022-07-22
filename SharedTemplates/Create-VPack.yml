@@ -1,0 +1,125 @@
+
+parameters:
+- name: ProductName
+  type: string
+  default: $(Build.Repository.Name)
+- name: PackageNameOverride
+  type: string
+  default: ''
+- name: ProductDescription
+  type: string
+- name: OsBranch
+  type: string
+- name: CreateCheckinJson
+  type: boolean
+  default: true
+- name: ManifestFileName
+  type: string
+  default: OSBuildTools.Manifest
+- name: ManifestPath
+  type: string
+  default: build/onecoreuap/internal/config
+- name: TargetSubPathOverride
+  type: string
+  default: ''
+- name: MergedManifestDestination
+  type: string
+  default: '$(XES_OUTDIR)'
+- name: EnableESRPSigning
+  type: boolean
+  default: true
+- name: ESRPSigningPattern
+  type: string
+  default: ''
+- name: ESRPKeyCode
+  type: string
+  default: CP-458204
+
+steps:
+- ${{ if parameters.EnableESRPSigning }}:
+  - task: SFP.build-tasks.custom-build-task-1.EsrpCodeSigning@1
+    displayName: 'ESRP CodeSigning'
+    inputs:
+      ConnectedServiceName: 'CoreBuild endpoint'
+      FolderPath: '$(Build.ArtifactStagingDirectory)\vPack'
+      ${{ if parameters.ESRPSigningPattern }}:
+        Pattern: ${{ parameters.ESRPSigningPattern }}
+      signConfigType: inlineSignParams
+      inlineOperation: |
+        [
+            {
+                "KeyCode" : "${{ parameters.ESRPKeyCode }}",
+                "OperationCode" : "SigntoolSign",
+                "Parameters" : {
+                "OpusName" : "Windows Build Tools Internal",
+                "OpusInfo" : "http://www.microsoft.com",
+                "FileDigest" : "/fd \"SHA256\"",
+                "PageHash" : "/NPH",
+                "TimeStamp" : "/tr \"http://rfc3161.gtm.corp.microsoft.com/TSS/HttpTspServer\" /td sha256"
+            },
+                "ToolName" : "sign",
+                "ToolVersion" : "1.0"
+            },
+            {
+                "KeyCode" : "${{ parameters.ESRPKeyCode }}",
+                "OperationCode" : "SigntoolVerify",
+                "Parameters" : {},
+                "ToolName" : "sign",
+                "ToolVersion" : "1.0"
+            }
+        ]
+
+- task: PkgESVPack@12
+  displayName: '${{ parameters.ProductName }} VPack'
+  inputs:
+    sourceDirectory: '$(Build.ArtifactStagingDirectory)\vPack'
+    description: '${{ parameters.ProductDescription }}'
+    ${{ if parameters.PackageNameOverride }}:
+      pushPkgName: '${{ parameters.PackageNameOverride }}'
+    ${{ if not(parameters.PackageNameOverride) }}:
+      pushPkgName: '${{ parameters.ProductName }}.$(BuildConfiguration)'
+    configurations: '$(BuildConfiguration)'
+    ${{ if parameters.TargetSubPathOverride }}:
+      target: '$(OSBuildToolsRoot)\${{ parameters.TargetSubPathOverride }}'
+    ${{ if not(parameters.TargetSubPathOverride) }}:
+      target: '$(OSBuildToolsRoot)\${{ parameters.ProductName }}'
+    symBaseline: false
+    symBaselineOutput: '$(Build.ArtifactStagingDirectory)\vPack'
+    symBaselineScanDir: '$(Build.ArtifactStagingDirectory)\vPack'
+    ${{ if parameters.TargetSubPathOverride }}:
+      symBaselinePathNorm: 'osbuildtoolsroot\${{ parameters.TargetSubPathOverride }}'
+    ${{ if not(parameters.TargetSubPathOverride) }}:
+      symBaselinePathNorm: 'osbuildtoolsroot\${{ parameters.ProductName }}'
+  env:
+    SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+
+- powershell: |
+    Write-Warning "VPack Package Name = $($env:XES_VPACKPACKAGENAME)"
+    Write-Warning "VPack Package Version = $($env:XES_VPACKPACKAGEVERSION)"
+    Write-Warning "Full VPack Manifest line = $($env:XES_VPACKMANIFESTDATA)"
+
+    $vpackInfoFile = join-path $($env:AGENT_BUILDDIRECTORY) vpackinfo.md
+    @"
+    # VPack information
+
+    | Name | Value |
+    | ---- | ----- |
+    | VPack Package name | $($env:XES_VPACKPACKAGENAME) |
+    | VPack Package version | $($env:XES_VPACKPACKAGEVERSION) |
+    | VPack manifest entry | $($env:XES_VPACKMANIFESTDATA) |
+    "@ | sc $vpackInfoFile
+    
+    Write-Host "##vso[task.uploadsummary]$vpackInfoFile"
+  displayName: 'Report VPack Information'
+
+# Note: This will only merge the manifest which was just created into the OS manifest.
+#     If more manifests should be merged, call the following template in its own stage instead.
+- ${{ if parameters.CreateCheckinJson }}:
+  - template: Create-Git-Checkin.yml
+    parameters:
+      ProductName: ${{ parameters.ProductName }}
+      OsBranch: ${{ parameters.OsBranch }}
+      OSManifestFileName: ${{ parameters.ManifestFileName }}
+      OSManifestPath: ${{ parameters.ManifestPath }}
+      FinalManifestDestinationDirectory: ${{ parameters.MergedManifestDestination }}
+      ManifestToMerge: '$(XES_VPACKMANIFESTDIRECTORY)\$(XES_VPACKMANIFESTNAME)'

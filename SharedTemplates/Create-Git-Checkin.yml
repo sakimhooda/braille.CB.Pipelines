@@ -1,0 +1,66 @@
+parameters:
+- name: ProductName
+  type: string
+  default: $(Build.Repository.Name)
+- name: OsBranch
+  type: string
+- name: OSManifestFileName
+  type: string
+- name: OSManifestPath
+  type: string
+  default: build/onecoreuap/internal/config
+- name: GitCheckinDestinationDirectory
+  type: string
+  default: $(BUILD.SOURCESDIRECTORY)
+- name: FinalManifestDestinationDirectory
+  type: string
+  default: $(System.ArtifactsDirectory)\OSManifest
+- name: ManifestToMerge
+  type: string
+
+steps:
+  - task: PkgESGitFetch@10
+    displayName: 'Fetch vPack Manifest from OS.2020 Repo'
+    inputs:
+      repository: 'https://microsoft.visualstudio.com/os/_git/os.2020'
+      branch: '${{ parameters.OsBranch }}'
+      source: '${{ parameters.OSManifestPath }}/${{ parameters.OSManifestFileName }}'
+      destination: '${{ parameters.FinalManifestDestinationDirectory }}'
+      manifest: '${{ parameters.ManifestToMerge }}'
+
+  - powershell: |
+      $prTitle = ($env:BUILD_SOURCEVERSIONMESSAGE).Split([Environment]::NewLine)[0].Replace('"', '\"');
+      $gitCheckinContent = '{
+          "Branch": [
+              {
+              "collection": "microsoft",
+              "project": "OS",
+              "repo": "os.2020",
+              "name": "${{ parameters.OsBranch }}",
+              "forceCompletePR": "True",
+              "CheckinFiles": [
+                  {
+                  "source": "${{ parameters.OSManifestFileName }}",
+                  "path": "/${{ parameters.OSManifestPath }}",
+                  "type": "File"
+                  }
+              ],
+              "PullRequestTitle": "[${{ parameters.ProductName }}] '+"$prTitle"+'"
+              }
+          ],
+          "Email": [
+              {
+                  "sendTo": "CoreBuildTeam@service.microsoft.com",
+                  "sendOnErrorOnly": "True"
+              }
+          ]
+      }'
+      # Create the GitCheckin.json file
+      $gitCheckinFile = Join-Path $env:${{ parameters.GitCheckinDestinationDirectory }} -ChildPath "GitCheckin.json"
+      Write-Host "Writing GitCheckin.json file [$gitCheckinFile]"
+      $gitCheckinContent | Set-Content -Path $gitCheckinFile
+      
+      # Display the result 
+      Write-Host "GitCheckin.json file content is:"
+      Get-Content $gitCheckinFile
+    displayName: 'Generate GitCheckin.json File'
